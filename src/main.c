@@ -37,8 +37,6 @@ int		exec(char **path, char *argv, char **env)
 	{
 		path[i] = ft_strjoin(path[i], "/");
 		cmd = ft_strjoin(path[i], *cmd_args);
-		printf("cmd is %s\n", cmd);
-		printf("i = %d\n", i);
 		if (access(cmd, X_OK) == 0) 
 		{
 			free(cmd);
@@ -46,59 +44,77 @@ int		exec(char **path, char *argv, char **env)
 		}
 		free(cmd);
 	}
-	return (0);
+	perror(*cmd_args);
+	return (-1);
 }
 
-void	child_process(int file1, char *cmd1, int *end, t_var *vars)
+int	child_process(int file1, int *end, t_var *vars)
 {
 	int	i;
 	char	**cmd_args;
 
-	(void)cmd1;
-	vars->path = get_binaries_path(vars->env);
 	cmd_args = ft_split(vars->argv[2], ' ');
 	i = exec(vars->path, vars->argv[2], vars->env);
-	exec(vars->path, vars->argv[2], vars->env);
+	if (i == -1)
+		return (0);
 	dup2(file1, STDIN_FILENO);
 	dup2(end[1], STDOUT_FILENO);
 	close(end[0]);
 	close(file1);
-	execve(vars->path[i], cmd_args, vars->env);
+	vars->path[i] = ft_strjoin(vars->path[i], *cmd_args);
+	if (execve(vars->path[i], cmd_args, NULL) == -1)
+	{
+		perror("Execve failed");
+		return (0);
+	}
+	return (1);
 }
 
-void	parent_process(int file2, char *cmd2, int *end, t_var *vars)
+int	parent_process(int file2, int *end, t_var *vars)
 {
 	char **cmd_args;
-	int	status;
 	int	i;
 
-	(void)cmd2;
+	waitpid(-1, &vars->pid, 0);
 	cmd_args = ft_split(vars->argv[3], ' ');
 	i = exec(vars->path, vars->argv[3], vars->env);
-	wait(&status);
+	if (i == -1)
+		return (0);
 	dup2(file2, STDOUT_FILENO);
 	dup2(end[0], STDIN_FILENO);
 	close(end[1]);
 	close(file2);
-	execve(vars->path[i], cmd_args, vars->env);
+	vars->path[i] = ft_strjoin(vars->path[i], *cmd_args);
+	if (execve(vars->path[i], cmd_args, NULL) == -1)
+	{
+		perror("Execve failed");
+		return (0);
+	}
+	return (1);
 }
 
-void	pipex(int file1, int file2, t_var *vars)
+int	pipex(int file1, int file2, t_var *vars)
 {
 	int	end[2];
-	pid_t	parent;
 
-	(void)file1;
-	(void)file2;
-	(void)vars;
 	pipe(end);
-	parent = fork();
-	if (parent < 0)
-		return (perror("Fork: "));
-	if (parent == 0)
-		child_process(file1, vars->cmd1, end, vars);
+	vars->pid = fork();
+	if (vars->pid < 0)
+	{
+		perror("Fork");
+		return (0);
+	}
+	if (vars->pid == 0)
+	{
+		if (child_process(file1, end, vars) == FAIL)
+			return (0);
+	}
 	else
-		parent_process(file2, vars->cmd2, end, vars);
+	{
+		if (parent_process(file2, end, vars) == FAIL)
+			return (0);
+	}
+	return (1);
 }
 
 int	main(int argc, char **argv, char **env)
@@ -112,16 +128,16 @@ int	main(int argc, char **argv, char **env)
 		ft_putstr_fd("Missing arguments\n", 0);
 		return (0);
 	}
-	(void)argv;
 	vars->env = env;
 	vars->path = get_binaries_path(env);
 	vars->argv = argv;
 	file1 = open(argv[1], O_RDONLY);
-	file2 = open(argv[4], O_CREAT | O_RDWR | O_TRUNC, 0644);
+	file2 = open(argv[4], O_CREAT | O_RDWR | O_TRUNC);
 	if (file1 < 0 || file2 < 0)
 	{
 		perror(argv[1]);
 		return (-1);
 	}
-	pipex(file1, file2, vars);
+	if (pipex(file1, file2, vars) == FAIL)
+		return (0);
 }
