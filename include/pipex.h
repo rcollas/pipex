@@ -1,3 +1,15 @@
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   pipex.h                                            :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: rcollas <marvin@42.fr>                     +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2021/09/20 23:38:48 by rcollas           #+#    #+#             */
+/*   Updated: 2021/09/20 23:38:49 by rcollas          ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
 #ifndef PIPEX_H
 # define PIPEX_H
 # define FAIL 0
@@ -14,7 +26,8 @@ typedef struct s_var {
 	char	**env;
 	char	**path;
 	int		*end;
-	pid_t	pid;
+	pid_t	first_child;
+	pid_t	second_child;
 } 			t_var;
 
 #endif

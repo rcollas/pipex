@@ -24,62 +24,79 @@ char	**get_binaries_path(char **env)
 	return (ft_split(*(env + line), ':'));
 }
 
-int		exec(char **path, char *argv, char **env)
+int	free_arg(char **cmd_args)
 {
 	int	i;
-	char	*cmd;
-	char	**cmd_args;
 
 	i = -1;
-	(void)env;
+	while (cmd_args[++i])
+		free(cmd_args[i]);
+	free(cmd_args);
+	return (0);
+}
+
+int	exec(char **path, char *argv)
+{
+	int		i;
+	char	*cmd;
+	char	**cmd_args;
+	char	**to_free;
+	char	*old_path;
+
+	i = -1;
 	cmd_args = ft_split(argv, ' ');
+	to_free = path;
 	while (path[++i])
 	{
+		old_path = path[i];
 		path[i] = ft_strjoin(path[i], "/");
+		free(old_path);
 		cmd = ft_strjoin(path[i], *cmd_args);
-		if (access(cmd, X_OK) == 0) 
+		if (access(cmd, X_OK) == 0)
 		{
 			free(cmd);
+			free_arg(cmd_args);
 			return (i);
 		}
 		free(cmd);
 	}
 	perror(*cmd_args);
-	return (-1);
+	return (free_arg(cmd_args) + free_arg(to_free));
 }
 
-int	child_process(int file1, int *end, t_var *vars)
+int	first_child(int file1, int *end, t_var *vars)
 {
-	int	i;
+	int		i;
 	char	**cmd_args;
 
 	cmd_args = ft_split(vars->argv[2], ' ');
-	i = exec(vars->path, vars->argv[2], vars->env);
+	i = exec(vars->path, vars->argv[2]);
 	if (i == -1)
-		return (0);
+	{
+		return (free_arg(cmd_args));
+	}
 	dup2(file1, STDIN_FILENO);
 	dup2(end[1], STDOUT_FILENO);
 	close(end[0]);
 	close(file1);
 	vars->path[i] = ft_strjoin(vars->path[i], *cmd_args);
-	if (execve(vars->path[i], cmd_args, NULL) == -1)
+	if (execve(vars->path[i], cmd_args, NULL) == FAIL)
 	{
 		perror("Execve failed");
-		return (0);
+		return (free_arg(cmd_args));
 	}
-	return (1);
+	return (free_arg(cmd_args));
 }
 
-int	parent_process(int file2, int *end, t_var *vars)
+int	second_child(int file2, int *end, t_var *vars)
 {
-	char **cmd_args;
-	int	i;
+	int		i;
+	char	**cmd_args;
 
-	waitpid(-1, &vars->pid, 0);
 	cmd_args = ft_split(vars->argv[3], ' ');
-	i = exec(vars->path, vars->argv[3], vars->env);
+	i = exec(vars->path, vars->argv[3]);
 	if (i == -1)
-		return (0);
+		return (free_arg(cmd_args));
 	dup2(file2, STDOUT_FILENO);
 	dup2(end[0], STDIN_FILENO);
 	close(end[1]);
@@ -88,32 +105,37 @@ int	parent_process(int file2, int *end, t_var *vars)
 	if (execve(vars->path[i], cmd_args, NULL) == -1)
 	{
 		perror("Execve failed");
-		return (0);
+		return (free_arg(cmd_args));
 	}
-	return (1);
+	return (free_arg(cmd_args));
 }
 
 int	pipex(int file1, int file2, t_var *vars)
 {
 	int	end[2];
+	int	status;
 
 	pipe(end);
-	vars->pid = fork();
-	if (vars->pid < 0)
+	vars->first_child = fork();
+	if (vars->first_child < 0)
 	{
 		perror("Fork");
-		return (0);
+		return (FAIL);
 	}
-	if (vars->pid == 0)
+	if (vars->first_child == 0)
+		first_child(file1, end, vars);
+	vars->second_child = fork();
+	if (vars->second_child < 0)
 	{
-		if (child_process(file1, end, vars) == FAIL)
-			return (0);
+		perror("Fork");
+		return (FAIL);
 	}
-	else
-	{
-		if (parent_process(file2, end, vars) == FAIL)
-			return (0);
-	}
+	if (vars->second_child == 0)
+		second_child(file2, end, vars);
+	close(end[0]);
+	close(end[1]);
+	waitpid(vars->first_child, &status, 0);
+	waitpid(vars->second_child, &status, 0);
 	return (1);
 }
 
@@ -128,7 +150,6 @@ int	main(int argc, char **argv, char **env)
 		ft_putstr_fd("Missing arguments\n", 0);
 		return (0);
 	}
-	vars->env = env;
 	vars->path = get_binaries_path(env);
 	vars->argv = argv;
 	file1 = open(argv[1], O_RDONLY);
@@ -136,8 +157,10 @@ int	main(int argc, char **argv, char **env)
 	if (file1 < 0 || file2 < 0)
 	{
 		perror(argv[1]);
-		return (-1);
+		return (free_arg(vars->path));
 	}
 	if (pipex(file1, file2, vars) == FAIL)
-		return (0);
+		return (free_arg(vars->path));
+	free_arg(vars->path);
+	return (SUCCESS);
 }
